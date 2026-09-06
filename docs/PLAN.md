@@ -6,6 +6,19 @@ REVIEWER: none
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
 
+## Prerequisite — install the test runner
+
+External agents run in isolated environments where `gotest` is not installed.
+Run this **before anything else**; the acceptance criteria depend on it:
+
+```bash
+go install webtyp.com/devflow/cmd/gotest@latest
+```
+
+Then use `gotest` for the whole suite and `gotest -run TestName` for one test.
+Never call `go test` directly: `gotest` handles `-vet`, `-race`, `-cover`, the
+WASM suite and the README badges.
+
 # Plan — `webtyp.com/media`
 
 ## Context (the executing agent has none — read this fully)
@@ -23,8 +36,23 @@ compiles Go to WebAssembly and runs it in the browser, so this package wraps
 - **This package compiles to WASM.** Never import the Go standard library. Use
   `webtyp.com/fmt` in place of `fmt`, `errors`, `strconv` and `strings`;
   `webtyp.com/json` in place of `encoding/json`.
-- **Never use `syscall/js` directly.** `webtyp.com/jsvalue` is the typed bridge
-  to JavaScript values, and `webtyp.com/dom` is the only DOM access library.
+- **`syscall/js` is required here, and that is correct.** The ecosystem rule
+  "never use `syscall/js`" governs **application** code. A capability library
+  that wraps a browser API has no alternative, and the ecosystem's own libraries
+  do it: `webtyp.com/fetch` (`client_wasm.go`) imports it and drives
+  `then`/`catch` directly. `webtyp.com/jsvalue` is **not** a general bridge — it
+  is a codec that marshals Go values to and from `js.Value`, with no way to call
+  a method or await a promise. Use `jsvalue` to convert the constraints object
+  and the device list; use `syscall/js` to reach `navigator.mediaDevices`.
+- **Await promises with the channel bridge, not with a spin loop.** TinyGo's
+  WASM target uses the `asyncify` scheduler, so a goroutine blocking on a
+  channel yields to the JS event loop and resumes correctly. The pattern is
+  `js.FuncOf` callbacks sending into a channel; it is proven in
+  `webtyp.com/indexdb`, which is the reference implementation to copy.
+- **`webtyp.com/dom` is the only DOM access library** — for `AttachTo`, reach
+  the element through `dom`, never by re-querying the document.
+- **Avoid `map` in WASM code** (skill: wasm) — it inflates the binary. Use
+  structs or slices for small collections.
 - **Embed `dom.Element` as a value, never as a pointer.** Pointer embeds double
   the heap allocation under TinyGo's GC.
 - **No generic holes.** No `func(...any)`, no `interface{}` in the public API.
@@ -213,8 +241,13 @@ func Devices() ([]Device, error)
 - **No hardcoded strings.** Every `DOMException` name, every JS property name
   (`srcObject`, `getUserMedia`, `enumerateDevices`) and every message is a named
   constant.
-- **No stdlib.** `webtyp.com/fmt` and `webtyp.com/json` only.
-- **No `syscall/js`.** `webtyp.com/jsvalue` and `webtyp.com/dom` only.
+- **No stdlib replacements skipped.** `webtyp.com/fmt` for `fmt`/`errors`/
+  `strings`/`strconv`, `webtyp.com/json` for `encoding/json`, `webtyp.com/time`
+  for `time`. `math` is **not** on that list and is allowed — but this package
+  needs none.
+- **`syscall/js` only inside `//go:build wasm` files**, and only to reach
+  `navigator.mediaDevices`. Everything that crosses the Go/JS boundary as data
+  goes through `webtyp.com/jsvalue`.
 - The whole public API is `//go:build wasm`. A `//go:build !wasm` stub must
   exist so a project's server-side build still compiles: every function returns
   `ErrNotInBrowser`. Without it, importing this package breaks every consumer's
@@ -246,8 +279,9 @@ Against a fake `mediaDevices` injected through `jsvalue`:
 
 ## Acceptance criteria
 
-1. `grep -rn "syscall/js" --include='*.go' .` → empty.
-2. `grep -rnE '"(fmt|errors|strings|strconv|encoding/json)"' --include='*.go' .` → empty.
+1. `grep -rnE '"(fmt|errors|strings|strconv|encoding/json|time)"' --include='*.go' .` → empty.
+2. `grep -rn "syscall/js" --include='*.go' .` → present **only** in files tagged
+   `//go:build wasm`. It must never appear in the `!wasm` stubs.
 3. `go build ./... && go vet ./...` → clean under both `!wasm` and `wasm`.
 4. `gotest` passes, including the WASM suite.
 5. Test 6 covers all six names.
