@@ -2,6 +2,8 @@
 PLAN: "feat: typed camera and microphone access for WebTyp"
 EXECUTOR: jules
 REVIEWER: none
+STATUS: running
+SESSION: 93705424840277936
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
