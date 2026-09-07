@@ -1,0 +1,27 @@
+package media
+
+const (
+	propVideo           = "video"
+	propAudio           = "audio"
+	propFacingMode      = "facingMode"
+	propDeviceID        = "deviceId"
+	propExact           = "exact"
+	facingUser          = "user"
+	facingEnvironment   = "environment"
+	propNavigator       = "navigator"
+	propMediaDevices    = "mediaDevices"
+	propGetUserMedia    = "getUserMedia"
+	propEnumerateDevs   = "enumerateDevices"
+	propSrcObject       = "srcObject"
+	propIsSecureContext = "isSecureContext"
+	propLocation        = "location"
+	propOrigin          = "origin"
+	propTagName         = "tagName"
+	propName            = "name"
+	propKind            = "kind"
+	propLabel           = "label"
+	kindVideoInput      = "videoinput"
+	kindAudioInput      = "audioinput"
+	tagVideo            = "VIDEO"
+	tagAudio            = "AUDIO"
+)
