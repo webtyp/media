@@ -48,7 +48,7 @@ const (
 
 // Request returns ErrNotInBrowser under non-WASM builds.
 func Request(c Constraints) (*Stream, error) {
-	if !c.hasVideo && !c.hasAudio {
+	if !c.requested() {
 		return nil, ErrNoMediaRequested
 	}
 	return nil, ErrNotInBrowser

@@ -8,13 +8,47 @@ import (
 
 	"webtyp.com/dom"
 	"webtyp.com/fmt"
+	"webtyp.com/jsvalue"
 )
 
 const isWasm = true
 
 func TestAll(t *testing.T) {
 	runTests(t)
+	testConstraintsJS(t)
 	testWASMSuite(t)
+}
+
+// testConstraintsJS covers plan tests 1-4: the JavaScript MediaStreamConstraints
+// object produced by webtyp.com/jsvalue from a Constraints value.
+func testConstraintsJS(t *testing.T) {
+	// 1. Camera() -> { video: true }, no audio key.
+	c1 := jsvalue.ToJS(Camera())
+	if c1.Get(propVideo).Type() != js.TypeBoolean || !c1.Get(propVideo).Bool() {
+		t.Errorf("Camera() video = %v, want true", c1.Get(propVideo))
+	}
+	if !c1.Get(propAudio).IsUndefined() {
+		t.Errorf("Camera() audio key present, want absent")
+	}
+
+	// 2. Camera().And(Microphone()) -> both keys true.
+	c2 := jsvalue.ToJS(Camera().And(Microphone()))
+	if !c2.Get(propVideo).Bool() || !c2.Get(propAudio).Bool() {
+		t.Errorf("And() = video:%v audio:%v, want both true", c2.Get(propVideo), c2.Get(propAudio))
+	}
+
+	// 3. Front() -> facingMode "user"; Back() -> "environment".
+	if got := jsvalue.ToJS(Camera().Front()).Get(propVideo).Get(propFacingMode).String(); got != facingUser {
+		t.Errorf("Front() facingMode = %q, want %q", got, facingUser)
+	}
+	if got := jsvalue.ToJS(Camera().Back()).Get(propVideo).Get(propFacingMode).String(); got != facingEnvironment {
+		t.Errorf("Back() facingMode = %q, want %q", got, facingEnvironment)
+	}
+
+	// 4. Device("abc") -> deviceId: { exact: "abc" }.
+	if got := jsvalue.ToJS(Camera().Device("abc")).Get(propVideo).Get(propDeviceID).Get(propExact).String(); got != "abc" {
+		t.Errorf("Device() deviceId.exact = %q, want \"abc\"", got)
+	}
 }
 
 func testWASMSuite(t *testing.T) {
@@ -46,8 +80,9 @@ func testWASMSuite(t *testing.T) {
 			reject := args[1]
 			var cb js.Func
 			cb = js.FuncOf(func(this js.Value, cbArgs []js.Value) any {
-				errObj := win.Get("Object").New()
-				errObj.Set("name", errName)
+				// getUserMedia rejects with a DOMException; it stringifies as
+				// "<name>: <message>", which is how the name reaches the caller.
+				errObj := win.Get("DOMException").New("simulated rejection", errName)
 				reject.Invoke(errObj)
 				cb.Release()
 				return nil

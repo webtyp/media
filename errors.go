@@ -48,3 +48,25 @@ func mapDOMException(name string) error {
 		return fmt.Err(fmt.Sprintf("media: %s", name))
 	}
 }
+
+// errFromRejection maps a promise rejection surfaced by webtyp.com/await to a
+// typed media error. A DOMException stringifies as "<name>: <message>", so the
+// name is the text before the first ": "; a rejection with no usable name
+// (await.ErrRejected) is treated as a permission failure — the safe default the
+// platform itself falls back to.
+func errFromRejection(err error) error {
+	if err == nil {
+		return nil
+	}
+	name := err.Error()
+	if i := fmt.Index(name, ": "); i > 0 {
+		name = name[:i]
+	}
+	switch name {
+	case domErrNotAllowed, domErrNotFound, domErrNotReadable,
+		domErrOverconstrained, domErrSecurity, domErrAbort:
+		return mapDOMException(name)
+	default:
+		return ErrPermissionDenied
+	}
+}

@@ -5,57 +5,42 @@ import (
 )
 
 func runTests(t *testing.T) {
-	testConstraints(t)
+	testConstraintsBuilder(t)
 	testZeroConstraints(t)
 	testNonWASMStubs(t)
 }
 
-func testConstraints(t *testing.T) {
-	// 1. Camera() -> constraints object with video: true, no audio key
-	c1 := Camera()
-	m1 := c1.toMap()
-	if v, ok := m1["video"]; !ok || v != true {
-		t.Errorf("Camera() video constraint = %v, want true", v)
+// testConstraintsBuilder covers the builder state that is target-agnostic. The
+// JavaScript object shape (plan tests 1-4) needs js.Value and is asserted in
+// testConstraintsJS, under //go:build wasm.
+func testConstraintsBuilder(t *testing.T) {
+	if c := Camera(); !c.hasVideo || c.hasAudio {
+		t.Errorf("Camera() = %+v, want video only", c)
 	}
-	if _, ok := m1["audio"]; ok {
-		t.Errorf("Camera() audio constraint present, want absent")
-	}
-
-	// 2. Camera().And(Microphone()) -> both keys true
-	c2 := Camera().And(Microphone())
-	m2 := c2.toMap()
-	if v, ok := m2["video"]; !ok || v != true {
-		t.Errorf("And() video constraint = %v, want true", v)
-	}
-	if v, ok := m2["audio"]; !ok || v != true {
-		t.Errorf("And() audio constraint = %v, want true", v)
+	if c := Microphone(); c.hasVideo || !c.hasAudio {
+		t.Errorf("Microphone() = %+v, want audio only", c)
 	}
 
-	// 3. Camera().Front() -> facingMode: "user"; .Back() -> "environment"
-	c3Front := Camera().Front()
-	m3Front := c3Front.toMap()
-	v3Front, ok := m3Front["video"].(map[string]any)
-	if !ok || v3Front["facingMode"] != "user" {
-		t.Errorf("Front() video constraint = %v, want facingMode: user", m3Front["video"])
+	both := Camera().And(Microphone())
+	if !both.hasVideo || !both.hasAudio {
+		t.Errorf("Camera().And(Microphone()) = %+v, want video and audio", both)
 	}
 
-	c3Back := Camera().Back()
-	m3Back := c3Back.toMap()
-	v3Back, ok := m3Back["video"].(map[string]any)
-	if !ok || v3Back["facingMode"] != "environment" {
-		t.Errorf("Back() video constraint = %v, want facingMode: environment", m3Back["video"])
+	if c := Camera().Front(); c.facingMode != facingUser {
+		t.Errorf("Front() facingMode = %q, want %q", c.facingMode, facingUser)
+	}
+	if c := Camera().Back(); c.facingMode != facingEnvironment {
+		t.Errorf("Back() facingMode = %q, want %q", c.facingMode, facingEnvironment)
+	}
+	if c := Camera().Device("abc"); c.deviceID != "abc" {
+		t.Errorf("Device(\"abc\") deviceID = %q, want \"abc\"", c.deviceID)
 	}
 
-	// 4. Device("abc") -> deviceId: {exact: "abc"}
-	c4 := Camera().Device("abc")
-	m4 := c4.toMap()
-	v4, ok := m4["video"].(map[string]any)
-	if !ok {
-		t.Fatalf("Device() video constraint not a map: %v", m4["video"])
+	if Camera().IsNil() {
+		t.Errorf("Camera().IsNil() = true, want false")
 	}
-	devIDMap, ok := v4["deviceId"].(map[string]any)
-	if !ok || devIDMap["exact"] != "abc" {
-		t.Errorf("Device() deviceId constraint = %v, want {exact: abc}", v4["deviceId"])
+	if !(Constraints{}).IsNil() {
+		t.Errorf("Constraints{}.IsNil() = false, want true")
 	}
 }
 

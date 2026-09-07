@@ -17,6 +17,11 @@ const (
 	propLocation        = "location"
 	propOrigin          = "origin"
 	propTagName         = "tagName"
+	propName            = "name"
+	propKind            = "kind"
+	propLabel           = "label"
+	kindVideoInput      = "videoinput"
+	kindAudioInput      = "audioinput"
 	tagVideo            = "VIDEO"
 	tagAudio            = "AUDIO"
 )

@@ -4,6 +4,10 @@ package media
 
 import (
 	"syscall/js"
+
+	"webtyp.com/await"
+	"webtyp.com/jsvalue"
+	"webtyp.com/model"
 )
 
 // Device is one camera or microphone.
@@ -20,79 +24,63 @@ const (
 	KindMicrophone
 )
 
+// DecodeFields reads one MediaDeviceInfo through the model codec (webtyp.com/jsvalue).
+func (d *Device) DecodeFields(r model.FieldReader) {
+	if v, ok := r.String(propDeviceID); ok {
+		d.ID = v
+	}
+	if v, ok := r.String(propLabel); ok {
+		d.Label = v
+	}
+	if v, ok := r.String(propKind); ok {
+		d.Kind = kindFromJS(v)
+	}
+}
+
+// IsNil satisfies model.Decodable.
+func (d *Device) IsNil() bool { return d == nil }
+
+// kindFromJS maps a MediaDeviceInfo.kind string to a Kind. Output devices
+// ("audiooutput") and anything unrecognised map to the zero Kind.
+func kindFromJS(kind string) Kind {
+	switch kind {
+	case kindVideoInput:
+		return KindCamera
+	case kindAudioInput:
+		return KindMicrophone
+	default:
+		return 0
+	}
+}
+
 // Devices lists the available capture devices.
 func Devices() ([]Device, error) {
-	win := js.Global()
-	nav := win.Get(propNavigator)
-	if nav.IsUndefined() || nav.IsNull() {
+	md, err := mediaDevices(js.Global())
+	if err != nil {
+		return nil, err
+	}
+
+	promise := md.Call(propEnumerateDevs)
+	if !isThenable(promise) {
 		return nil, ErrNotInBrowser
 	}
-	mediaDevices := nav.Get(propMediaDevices)
-	if mediaDevices.IsUndefined() || mediaDevices.IsNull() {
-		return nil, ErrNotInBrowser
+
+	list, err := await.Promise(promise)
+	if err != nil {
+		return nil, errFromRejection(err)
 	}
 
-	type result struct {
-		devices []Device
-		err     error
-	}
-	ch := make(chan result, 1)
-
-	var onFulfilled, onRejected js.Func
-
-	onFulfilled = js.FuncOf(func(this js.Value, args []js.Value) any {
-		var devs []Device
-		if len(args) > 0 {
-			devList := args[0]
-			length := devList.Get("length").Int()
-			for i := 0; i < length; i++ {
-				dObj := devList.Index(i)
-				dKindStr := dObj.Get("kind").String()
-				var k Kind
-				if dKindStr == "videoinput" {
-					k = KindCamera
-				} else if dKindStr == "audioinput" {
-					k = KindMicrophone
-				} else {
-					continue
-				}
-				devs = append(devs, Device{
-					ID:    dObj.Get("deviceId").String(),
-					Label: dObj.Get("label").String(),
-					Kind:  k,
-				})
-			}
+	n := list.Length()
+	devs := make([]Device, 0, n)
+	for i := 0; i < n; i++ {
+		var d Device
+		if err := jsvalue.ToGo(list.Index(i), &d); err != nil {
+			return nil, err
 		}
-		ch <- result{devices: devs}
-		return nil
-	})
-
-	onRejected = js.FuncOf(func(this js.Value, args []js.Value) any {
-		var errRes error = ErrPermissionDenied
-		if len(args) > 0 {
-			errObj := args[0]
-			nameVal := errObj.Get("name")
-			if !nameVal.IsUndefined() && !nameVal.IsNull() {
-				errRes = mapDOMException(nameVal.String())
-			}
+		if d.Kind == 0 {
+			continue // output device or unknown kind
 		}
-		ch <- result{err: errRes}
-		return nil
-	})
-
-	promise := mediaDevices.Call(propEnumerateDevs)
-	if promise.IsUndefined() || promise.IsNull() || promise.Type() != js.TypeObject {
-		onFulfilled.Release()
-		onRejected.Release()
-		return nil, ErrNotInBrowser
+		devs = append(devs, d)
 	}
-	promise.Call("then", onFulfilled, onRejected)
-
-	res := <-ch
-	onFulfilled.Release()
-	onRejected.Release()
-	if res.err != nil {
-		return nil, res.err
-	}
-	return res.devices, nil
+	return devs, nil
 }

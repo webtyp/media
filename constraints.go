@@ -1,5 +1,9 @@
 package media
 
+import (
+	"webtyp.com/model"
+)
+
 // Constraints declares what to capture. Build it with Camera(), Microphone(),
 // or both; never construct it as a literal from outside this package.
 type Constraints struct {
@@ -55,30 +59,71 @@ func (c Constraints) Device(id string) Constraints {
 	return c
 }
 
-func (c Constraints) toMap() map[string]any {
-	m := make(map[string]any)
+// requested reports whether any media was asked for.
+func (c Constraints) requested() bool {
+	return c.hasVideo || c.hasAudio
+}
+
+// EncodeFields writes the JavaScript MediaStreamConstraints object. It is the
+// model codec contract consumed by webtyp.com/jsvalue — no map, no reflect.
+//
+// video/audio are emitted as `true` when unqualified, or as a nested object
+// when a facing mode or a device id narrows them.
+func (c Constraints) EncodeFields(w model.FieldWriter) {
 	if c.hasVideo {
 		if c.facingMode != "" || c.deviceID != "" {
-			videoSpec := make(map[string]any)
-			if c.facingMode != "" {
-				videoSpec[propFacingMode] = c.facingMode
-			}
-			if c.deviceID != "" {
-				videoSpec[propDeviceID] = map[string]any{propExact: c.deviceID}
-			}
-			m[propVideo] = videoSpec
+			w.Object(propVideo, videoConstraint{facingMode: c.facingMode, deviceID: c.deviceID})
 		} else {
-			m[propVideo] = true
+			w.Bool(propVideo, true)
 		}
 	}
 	if c.hasAudio {
 		if c.deviceID != "" {
-			audioSpec := make(map[string]any)
-			audioSpec[propDeviceID] = map[string]any{propExact: c.deviceID}
-			m[propAudio] = audioSpec
+			w.Object(propAudio, trackConstraint{deviceID: c.deviceID})
 		} else {
-			m[propAudio] = true
+			w.Bool(propAudio, true)
 		}
 	}
-	return m
 }
+
+// IsNil satisfies model.Encodable; a zero Constraints requests nothing.
+func (c Constraints) IsNil() bool { return !c.requested() }
+
+// videoConstraint is the nested `video: {...}` object.
+type videoConstraint struct {
+	facingMode string
+	deviceID   string
+}
+
+func (v videoConstraint) EncodeFields(w model.FieldWriter) {
+	if v.facingMode != "" {
+		w.String(propFacingMode, v.facingMode)
+	}
+	if v.deviceID != "" {
+		w.Object(propDeviceID, exactConstraint{id: v.deviceID})
+	}
+}
+
+func (v videoConstraint) IsNil() bool { return v.facingMode == "" && v.deviceID == "" }
+
+// trackConstraint is the nested `audio: {...}` object.
+type trackConstraint struct {
+	deviceID string
+}
+
+func (t trackConstraint) EncodeFields(w model.FieldWriter) {
+	w.Object(propDeviceID, exactConstraint{id: t.deviceID})
+}
+
+func (t trackConstraint) IsNil() bool { return t.deviceID == "" }
+
+// exactConstraint is the `deviceId: {exact: "..."}` object.
+type exactConstraint struct {
+	id string
+}
+
+func (e exactConstraint) EncodeFields(w model.FieldWriter) {
+	w.String(propExact, e.id)
+}
+
+func (e exactConstraint) IsNil() bool { return e.id == "" }

@@ -4,6 +4,9 @@ package media
 
 import (
 	"syscall/js"
+
+	"webtyp.com/await"
+	"webtyp.com/jsvalue"
 )
 
 func getOrigin(win js.Value) string {
@@ -18,9 +21,28 @@ func getOrigin(win js.Value) string {
 	return origVal.String()
 }
 
+// mediaDevices returns navigator.mediaDevices, or ErrNotInBrowser when the
+// current global has no such object.
+func mediaDevices(win js.Value) (js.Value, error) {
+	nav := win.Get(propNavigator)
+	if nav.IsUndefined() || nav.IsNull() {
+		return js.Value{}, ErrNotInBrowser
+	}
+	md := nav.Get(propMediaDevices)
+	if md.IsUndefined() || md.IsNull() {
+		return js.Value{}, ErrNotInBrowser
+	}
+	return md, nil
+}
+
+// isThenable reports whether v can be awaited as a promise.
+func isThenable(v js.Value) bool {
+	return !v.IsUndefined() && !v.IsNull() && v.Type() == js.TypeObject
+}
+
 // Request asks the user for access and resolves to a live Stream.
 func Request(c Constraints) (*Stream, error) {
-	if !c.hasVideo && !c.hasAudio {
+	if !c.requested() {
 		return nil, ErrNoMediaRequested
 	}
 
@@ -29,64 +51,24 @@ func Request(c Constraints) (*Stream, error) {
 		return nil, buildInsecureContextErr(getOrigin(win))
 	}
 
-	nav := win.Get(propNavigator)
-	if nav.IsUndefined() || nav.IsNull() {
+	md, err := mediaDevices(win)
+	if err != nil {
+		return nil, err
+	}
+
+	promise := md.Call(propGetUserMedia, jsvalue.ToJS(c))
+	if !isThenable(promise) {
 		return nil, ErrNotInBrowser
 	}
-	mediaDevices := nav.Get(propMediaDevices)
-	if mediaDevices.IsUndefined() || mediaDevices.IsNull() {
-		return nil, ErrNotInBrowser
-	}
 
-	constraintsJS := mapToJS(c.toMap())
-
-	type result struct {
-		streamVal js.Value
-		err       error
-	}
-	ch := make(chan result, 1)
-
-	var onFulfilled, onRejected js.Func
-
-	onFulfilled = js.FuncOf(func(this js.Value, args []js.Value) any {
-		var sVal js.Value
-		if len(args) > 0 {
-			sVal = args[0]
+	streamVal, err := await.Promise(promise)
+	if err != nil {
+		typed := errFromRejection(err)
+		if typed == ErrInsecureContext {
+			return nil, buildInsecureContextErr(getOrigin(win))
 		}
-		ch <- result{streamVal: sVal}
-		return nil
-	})
-
-	onRejected = js.FuncOf(func(this js.Value, args []js.Value) any {
-		var errRes error = ErrPermissionDenied
-		if len(args) > 0 {
-			errObj := args[0]
-			nameVal := errObj.Get("name")
-			if !nameVal.IsUndefined() && !nameVal.IsNull() {
-				errRes = mapDOMException(nameVal.String())
-				if errRes == ErrInsecureContext {
-					errRes = buildInsecureContextErr(getOrigin(win))
-				}
-			}
-		}
-		ch <- result{err: errRes}
-		return nil
-	})
-
-	promise := mediaDevices.Call(propGetUserMedia, constraintsJS)
-	if promise.IsUndefined() || promise.IsNull() || promise.Type() != js.TypeObject {
-		onFulfilled.Release()
-		onRejected.Release()
-		return nil, ErrNotInBrowser
-	}
-	promise.Call("then", onFulfilled, onRejected)
-
-	res := <-ch
-	onFulfilled.Release()
-	onRejected.Release()
-	if res.err != nil {
-		return nil, res.err
+		return nil, typed
 	}
 
-	return newStream(res.streamVal), nil
+	return newStream(streamVal), nil
 }
