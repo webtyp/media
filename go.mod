@@ -7,5 +7,5 @@ require (
 	webtyp.com/dom v0.13.20
 	webtyp.com/fmt v1.0.0
 	webtyp.com/jsvalue v0.1.6
-	webtyp.com/model v0.1.9
+	webtyp.com/model v0.2.2
 )
