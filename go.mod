@@ -7,7 +7,7 @@ require (
 	webtyp.com/dom v0.13.27
 	webtyp.com/fmt v1.0.0
 	webtyp.com/jsvalue v0.1.6
-	webtyp.com/model v0.2.5
+	webtyp.com/model v0.2.6
 )
 
 require webtyp.com/escape v0.1.0 // indirect
